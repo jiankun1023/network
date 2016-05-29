@@ -7,7 +7,6 @@ import java.net.*;
 import java.security.KeyStore;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.HashMap;
 import java.util.Map;
 
 public final class Server implements Runnable{
@@ -50,7 +49,7 @@ public final class Server implements Runnable{
 			sslContext.init(keyManagerFactory.getKeyManagers(), null, null);
 
 			ServerSocketFactory serverSocketFactory = sslContext.getServerSocketFactory();
-			socket = (SSLServerSocket) serverSocketFactory.createServerSocket(serverPort);
+			socket = serverSocketFactory.createServerSocket(serverPort);
 			((SSLServerSocket) socket).setNeedClientAuth(false);
 		} catch (Exception e) {
 			System.out.println(e.getMessage());
@@ -97,14 +96,13 @@ public final class Server implements Runnable{
 		do {
 			inputLine = fromClientStream.readLine();
 			if (inputLine == null) {
-				System.out.println("inputLine was null!\n");
+				System.out.println("InputLine is null!\n");
 				return false;
 			}
 			rawRequest.add(inputLine);
 		} while ((inputLine != null) && (inputLine.length() > 0));
 
-		persistent = true; //this program is hard-coded for 1.1 only
-
+		persistent = true;
 		for (String s : rawRequest) {
 			if (s.equalsIgnoreCase("Connection: close")) {
 				persistent = false;
@@ -150,7 +148,7 @@ public final class Server implements Runnable{
 				.append("HTTP/1.1 301 Moved Permanently\r\n")
 				.append(String.format("Location: %s\r\n", newUrl))
 				.append(String.format("Content-Type: text/html\r\n"))
-				.append("Connection: close\r\n")
+				.append("Connection: " + (persistent ? "keep-alive" : "close") + "\r\n")
 				.append(String.format("Content-Length: %d\r\n", responseBody.length()));
 		if (request.getType() == HTTPRequest.Command.GET) {
 			response.append(String.format("\r\n%s", responseBody));
@@ -169,7 +167,7 @@ public final class Server implements Runnable{
 		StringBuilder response = new StringBuilder()
 				.append("HTTP/1.1 404 Not Found\r\n")
 				.append("Content-Type: text/html\r\n")
-				.append("Connection: close\r\n")
+				.append("Connection: " + (persistent ? "keep-alive" : "close") + "\r\n")
 				.append(String.format("Content-Length: %d\r\n", responseBody.length()));
 		if (request.getType() == HTTPRequest.Command.GET) {
 			response.append(String.format("\r\n%s\r\n", responseBody));
@@ -184,7 +182,7 @@ public final class Server implements Runnable{
 	private void send403(HTTPRequest request, String errorDetail) throws IOException {
 		StringBuilder response = new StringBuilder()
 				.append("HTTP/1.1 403 Forbidden\r\n")
-				.append("Connection: close\r\n")
+				.append("Connection: " + (persistent ? "keep-alive" : "close") + "\r\n")
 				.append(String.format("Context-Length: %d\r\n", errorDetail.length()));
 		if (request.getType() == HTTPRequest.Command.GET) {
 			response.append(String.format("\r\n%s\r\n", errorDetail));
@@ -197,7 +195,7 @@ public final class Server implements Runnable{
 				.append("HTTP/1.1 200 OK\r\n")
 				.append("Content-Type: " + mimeType + "\r\n")
 				.append("Server: project1\r\n")
-				.append("Connection: close\r\n")
+				.append("Connection: " + (persistent ? "keep-alive" : "close") + "\r\n")
 				.append(String.format("Content-Length: %d\r\n", content.length));
 		toClientStream.writeBytes(response.toString());
 		if (request.getType() == HTTPRequest.Command.GET) {
@@ -215,19 +213,15 @@ public final class Server implements Runnable{
 			try {
 				if (clientSocket == null || !clientSocket.isConnected()) {
 					clientSocket = acceptFromClient();
-					System.out.println("链接！！！Connection accepted");
 				}
-				if (handleRequest())
+				if (handleRequest()) {
 					continue;
+				}
 
 				clientSocket.close();
-				System.out.println("Closing client socket");
 				clientSocket = null;
+				System.out.println("Expire. Client close!");
 			} catch (IOException e) {
-				String msg = "IO Exception, continuing: " + e;
-				if (msg.indexOf("unknown_ca") < 0) {
-					System.out.println(msg);
-				}
 				clientSocket = null;
 			}
 		}
@@ -242,8 +236,8 @@ public final class Server implements Runnable{
 			System.exit(-1);
 		}
 
-		int serverPort = -1;
-		int sslServerPort = -1;
+		int serverPort;
+		int sslServerPort;
 		try {
 			serverPort = Integer.parseInt(flags.get("--serverPort"));
 			sslServerPort = Integer.parseInt(flags.get("--sslServerPort"));
@@ -264,34 +258,10 @@ public final class Server implements Runnable{
 			System.out.println("Error binding port. Details: " + e);
 		}
 
-		if (server != null)
-			(new Thread(server)).start();
-		if (sslserver != null)
-			(new Thread(sslserver)).start();
-		while (true) try {
-			Thread.sleep(1000);
-		} catch (InterruptedException e) {}
-		// Server server = new Server(serverPort);
-		// try {
-		// 	server.loadResources();
-		// 	server.bind();
-		// 	while(true) {
-		// 		Socket clientSocket = server.acceptFromClient();
-		// 		if (clientSocket != null && clientSocket.isConnected()) {
-		// 			try {
-		// 				server.handleRequest();
-		// 			} catch (IOException e) {
-		// 				System.out.println("IO exception handling request, continuing.");
-		// 			}
-		// 			try {
-		// 				clientSocket.close();
-		// 			} catch (IOException e) {
-		// 				System.out.println("it's ok; the server already closed the connection.");
-		// 			}
-		// 		}
-		// 	}
-		// } catch (IOException e) {
-		// 	System.out.println("Error communicating with client. aborting. Details: " + e);
-		// }
+
+		(new Thread(server)).start();
+		(new Thread(sslserver)).start();
+
+
 	}
 }
